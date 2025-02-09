@@ -1,1 +1,14 @@
+langchain
+pydantic
+langchain-openai==0.3
+langchain_core
+typing
+langchain-text-splitters
+langchain-community
+langgraph
+selenium
+beautifulsoup4
+langchain-chroma
+flask
+langchain_pinecone
 streamlit
