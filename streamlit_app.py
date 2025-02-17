@@ -344,13 +344,12 @@ if "conversation" not in st.session_state:
 
 def run_virtual_assistant():
     st.title("Virtual Agent")
-    final_message_content = ""
     
     # Display the conversation history (optional)
-    if st.session_state.conversation:
-        st.subheader("Conversation History:")
-        for role, message in st.session_state.conversation:
-            st.markdown(f"**{role.capitalize()}:** {final_message_content}")
+    #if st.session_state.conversation:
+      #  st.subheader("Conversation History:")
+       # for role, message in st.session_state.conversation:
+        #    st.markdown(f"**{role.capitalize()}:** {final_message_content}")
     
     # Ask for user input
     user_input = st.text_input("Ask me anything about YouSee Denmark offers (or type 'reset' to clear):")
