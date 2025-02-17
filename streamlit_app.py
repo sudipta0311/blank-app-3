@@ -341,15 +341,18 @@ config = {"configurable": {"thread_id": "aaa1234"}}
 # Initialize session state for conversation history if it doesn't exist.
 if "conversation" not in st.session_state:
     st.session_state.conversation = []  # List of tuples like ("user", "question") or ("assistant", "response")
+    
+    final_message_content = ""
 
 def run_virtual_assistant():
     st.title("Virtual Agent")
+
     
     # Display the conversation history (optional)
-    #if st.session_state.conversation:
-      #  st.subheader("Conversation History:")
-       # for role, message in st.session_state.conversation:
-        #    st.markdown(f"**{role.capitalize()}:** {final_message_content}")
+    if st.session_state.conversation:
+        st.subheader("Conversation History:")
+        for role, message in st.session_state.conversation:
+            st.markdown(f"**{role.capitalize()}:** {final_message_content}")
     
     # Ask for user input
     user_input = st.text_input("Ask me anything about YouSee Denmark offers (or type 'reset' to clear):")
@@ -368,7 +371,7 @@ def run_virtual_assistant():
             "messages": st.session_state.conversation,
         }
         
-        final_message_content = ""
+        
         # Process the input through the graph (assumes 'graph' is defined globally)
         for output in graph.stream(inputs, config):
             for key, value in output.items():
