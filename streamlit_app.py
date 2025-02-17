@@ -332,47 +332,63 @@ graph = workflow.compile(checkpointer=memory)
 
 #############################################GUI#################################################
 
-
-
-config = {"configurable": {"thread_id": "aaa1234"}}
-
 import streamlit as st
 import pprint
 
+# Global config for the graph (ensure 'graph' and necessary functions are defined globally)
+config = {"configurable": {"thread_id": "aaa1234"}}
 
-# Define the Streamlit app
+# Initialize session state for conversation history if it doesn't exist.
+if "conversation" not in st.session_state:
+    st.session_state.conversation = []  # List of tuples like ("user", "question") or ("assistant", "response")
+
 def run_virtual_assistant():
-    st.title("Virtual Assistant")
-
+    st.title("Virtual Agent")
+    
+    # Display the conversation history (optional)
+    if st.session_state.conversation:
+        st.subheader("Conversation History:")
+        for role, message in st.session_state.conversation:
+            st.markdown(f"**{role.capitalize()}:** {final_message_content}")
+    
     # Ask for user input
-    user_input = st.text_input("What you want to buy?")
-
+    user_input = st.text_input("Ask me anything about YouSee Denmark offers (or type 'reset' to clear):")
+    
     if user_input:
-        # Prepare the input for the graph
+        # Optionally allow the user to reset the conversation
+        if user_input.strip().lower() == "reset":
+            st.session_state.conversation = []
+            st.experimental_rerun()
+        
+        # Append the user's question to the conversation history
+        st.session_state.conversation.append(("user", user_input))
+        
+        # Prepare the input for the graph using the entire conversation history
         inputs = {
-            "messages": [
-                ("user", user_input),
-            ]
+            "messages": st.session_state.conversation,
         }
-
-        # Initialize a variable to store the final message content
+        
         final_message_content = ""
-
-        # Process the input through the graph (assumes 'graph' and 'config' are defined globally)
+        # Process the input through the graph (assumes 'graph' is defined globally)
         for output in graph.stream(inputs, config):
             for key, value in output.items():
                 # Check if the value is a dict containing messages
                 if isinstance(value, dict) and "messages" in value:
                     for msg in value["messages"]:
-                        # Check if the message object has the 'content' attribute
+                        # If the message object has the 'content' attribute, use it.
                         if hasattr(msg, "content"):
                             final_message_content = msg.content + "\n"
+                            # Append the assistant response to conversation history
+                            st.session_state.conversation.append(("assistant", msg.content))
                         else:
                             final_message_content = str(msg) + "\n"
-
-        # Use st.markdown to render the content with preserved newlines
+                            st.session_state.conversation.append(("assistant", str(msg)))
+        
+        # Render the final response
         st.markdown(final_message_content)
+        
+        # Optionally, print the full conversation for debugging:
+        # pprint.pprint(st.session_state.conversation, indent=2, width=80)
 
-# Run the app
 if __name__ == "__main__":
     run_virtual_assistant()
