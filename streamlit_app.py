@@ -327,7 +327,7 @@ workflow.add_edge("rewrite", "agent")
 # If you don't need a checkpointer, compile without it.
 memory = MemorySaver()
 graph = workflow.compile(checkpointer=memory)
-graph = workflow.compile()
+
 
 
 #############################################GUI#################################################
@@ -345,7 +345,7 @@ def run_virtual_assistant():
     st.title("Virtual Assistant")
 
     # Ask for user input
-    user_input = st.text_input("Ask me anything about your telcom need")
+    user_input = st.text_input("What you want to buy?")
 
     if user_input:
         # Prepare the input for the graph
