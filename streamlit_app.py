@@ -42,6 +42,17 @@ retriever_tool = create_retriever_tool(
 tools = [retriever_tool]
 
 ############################# Utility tasks ############################################
+from typing import Annotated, Sequence
+from typing_extensions import TypedDict
+
+from langchain_core.messages import BaseMessage
+
+from langgraph.graph.message import add_messages
+
+class AgentState(TypedDict):
+    # The add_messages function defines how an update should be processed
+    # Default is to replace. add_messages says "append"
+    messages: Annotated[Sequence[BaseMessage], add_messages]
 
 from typing import Annotated, Literal, Sequence
 from typing_extensions import TypedDict
@@ -56,6 +67,13 @@ from pydantic import BaseModel, Field
 
 
 from langgraph.prebuilt import tools_condition
+
+def get_latest_user_question(messages):
+    # Iterate over the messages in reverse order
+    for role, content in reversed(messages):
+        if role.lower() == "user":
+            return content
+    return ""
 
 ### Edges
 
@@ -95,17 +113,18 @@ def grade_documents(state) -> Literal["generate", "rewrite"]:
         input_variables=["context", "question"],
     )
 
-    # Chain
     chain = prompt | llm_with_tool
-
+    
     messages = state["messages"]
     last_message = messages[-1]
 
-    question = messages[0].content
+    #question = messages[0].content
+    #question = get_latest_user_question(messages)
+    question = get_latest_user_question(st.session_state.conversation)
+
     docs = last_message.content
 
     scored_result = chain.invoke({"question": question, "context": docs})
-
     score = scored_result.binary_score
 
     if score == "yes":
@@ -153,9 +172,11 @@ def rewrite(state):
     """
 
     print("---TRANSFORM QUERY FOR YOUSEE DENMARK---")
-
+    
     messages = state["messages"]
-    question = messages[0].content  # Extract the user's question
+    #question = get_latest_user_question(messages)
+    question = get_latest_user_question(st.session_state.conversation)
+
 
     # Prompt to force contextualization for YOUSEE DENMARK
     msg = [
@@ -175,76 +196,51 @@ def rewrite(state):
     # Invoke the model to rephrase the question with Airtel context
     model = ChatOpenAI(temperature=0, model="gpt-4-0125-preview", streaming=True)
     response = model.invoke(msg)
+    print("relevent conextualized question=" + response.content)
 
+    print(response.content)
     return {"messages": [response]}
 
 
 def generate(state):
-    """
-    Generate answer
-
-    Args:
-        state (messages): The current state
-
-    Returns:
-         dict: The updated state with re-phrased question
-    """
     print("---GENERATE---")
     messages = state["messages"]
-    question = messages[0].content
+    
+    #question = get_latest_user_question(messages)
+    question = get_latest_user_question(st.session_state.conversation)
+    # Assume the last assistant message (or retrieved content) holds the context.
     last_message = messages[-1]
-
     docs = last_message.content
-
-    # Prompt
-   # prompt = hub.pull("rlm/rag-prompt")
+    
     prompt = PromptTemplate(
-    template="""
-    You are a telecom sales agent specializing in providing the best offers and plans for customers.
-    Your goal is to assist customers by answering their questions, providing relevant information based on the available context,
-    and creating a compelling sales proposal that convinces them to choose a product or service.
-
-    **Context Information:**
-    {context}
-
-    **Customer's Question:**
-    {question}
-
-    **Instructions:**
-    - If the context contains relevant details, use them to craft a persuasive sales pitch.
-    - Highlight the key benefits, special offers, and why the customer should choose this product or service.
-    - If there are multiple options, suggest the best one based on the customer's needs.
-    - If no relevant information is available, politely inform the customer:
-      "I'm sorry, but I don't have the details for that request at the moment."
-
-    **Sales Proposal Format:**
-    - **Greeting & Acknowledgment**: ("Thank you for your interest in our telecom services!")
-    - **Personalized Offer**: ("Based on your query, here’s the best plan for you...")
-    - **Key Benefits**: (Speed, coverage, price, special discounts, etc.)
-    - **Call to Action**: ("This is a limited-time offer! Would you like to proceed with this?")
-    """,
-    input_variables=["context", "question"],)
-
-
-    # LLM
+        template="""You are a telecom sales agent specializing in providing the best offers and plans for customers.
+        Your goal is to assist customers by answering their questions, providing relevant information based on the available context,
+        and creating a compelling sales proposal that convinces them to choose a product or service.
+        
+        **Context Information:**
+        {context}
+        
+        **Customer's Question:**
+        {question}
+        
+        **Instructions:**
+        - If the context contains relevant details, use them to craft a persuasive sales pitch.
+        - Highlight the key benefits, special offers, and why the customer should choose this product or service.
+        - If no relevant information is available, politely inform the customer:
+          "I'm sorry, but I don't have the details for that request at the moment."
+        """,
+        input_variables=["context", "question"],
+    )
+    
     llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0, streaming=True)
-
-    # Post-processing
-    def format_docs(docs):
-        return "\n\n".join(doc.page_content for doc in docs)
-
-    # Chain
     rag_chain = prompt | llm | StrOutputParser()
-
-    # Run
     response = rag_chain.invoke({"context": docs, "question": question})
     return {"messages": [response]}
 
 
+
 #print("*" * 20 + "Prompt[rlm/rag-prompt]" + "*" * 20)
 #prompt = hub.pull("rlm/rag-prompt").pretty_print()  # Show what the prompt looks like
-
-########################## graph #################################################################
 
 from langgraph.graph import END, StateGraph, START
 from langgraph.prebuilt import ToolNode
@@ -267,14 +263,14 @@ global_retry_count = 0
 def grade_documents_limited(state) -> str:
     global global_retry_count
     print("---TEST global retry count is ---", global_retry_count)
-    
+
     decision = grade_documents(state)  # This function must be defined elsewhere.
-    
+
     if decision == "rewrite":
         if global_retry_count >= 1:
             # Maximum retries reached: force to generate a response.
             print("---Maximum retries reached: switching to generate---")
-            return "generate"
+            return "final"
         else:
             # Increment the global retry counter and request a rewrite.
             global_retry_count += 1
@@ -282,6 +278,14 @@ def grade_documents_limited(state) -> str:
             return "rewrite"
     else:
         return decision
+    
+# Define a new node for the final response.
+def final_response(state):
+    final_msg = ("Sorry, this question is beyond my knowledge, "
+                 "as a virtual assistant I can only assist you with your need on telecom service")
+    # Wrap the message in an AIMessage object.
+    return {"messages": [AIMessage(content=final_msg)]}
+
 
 # Define a new graph.
 workflow = StateGraph(AgentState)
@@ -292,6 +296,7 @@ retrieve = ToolNode([retriever_tool])       # 'retriever_tool' must be defined.
 workflow.add_node("retrieve", retrieve)     # Retrieval node.
 workflow.add_node("rewrite", rewrite)       # Rewriting the question; function 'rewrite' must be defined.
 workflow.add_node("generate", generate)     # Generating the response; function 'generate' must be defined.
+workflow.add_node("final_response", final_response)  # Final message node.
 
 # Build the edges.
 # Start by rewriting the query.
@@ -313,9 +318,15 @@ workflow.add_conditional_edges(
 )
 
 # After retrieval, use the limited grade_documents function to decide.
+# We update the mapping to handle our new "final" branch.
 workflow.add_conditional_edges(
     "retrieve",
     grade_documents_limited,
+    {
+        "rewrite": "rewrite",
+        "generate": "generate",
+        "final": "final_response"
+    }
 )
 
 # When generation is completed, end the graph.
@@ -324,68 +335,86 @@ workflow.add_edge("generate", END)
 workflow.add_edge("rewrite", "agent")
 
 # Compile the graph.
-# If you don't need a checkpointer, compile without it.
 memory = MemorySaver()
 graph = workflow.compile(checkpointer=memory)
+#graph = workflow.compile()
 
-
+# When running the graph, initialize the state.
+# For example, in your Streamlit app, you might use:
+# inputs = {
+#     "messages": [("user", user_input)],
+# }
 
 #############################################GUI#################################################
-
+import uuid
 import streamlit as st
+
+# Generate a thread_id dynamically if it doesn't exist in session state.
+if "thread_id" not in st.session_state:
+    st.session_state.thread_id = str(uuid.uuid4())
+
+# Now use the dynamically generated thread_id in your config.
+config = {"configurable": {"thread_id": st.session_state.thread_id}}
+
+if "history" not in st.session_state:
+    st.session_state.history = ""
+
+
 import pprint
 
-# Global config for the graph (ensure 'graph' and necessary functions are defined globally)
-config = {"configurable": {"thread_id": "aaa1234"}}
 
 # Initialize session state for conversation history if it doesn't exist.
 if "conversation" not in st.session_state:
     st.session_state.conversation = []  # List of tuples like ("user", "question") or ("assistant", "response")
-    
-    
 
 def run_virtual_assistant():
     st.title("Virtual Agent")
+    
+    # Display conversation history if available.
+    if st.session_state.conversation:
+        with st.expander("Click here to see the old conversation"):
+            st.subheader("Conversation History")
+            st.markdown({st.session_state.history})
 
-    
-    # Ask for user input
-    user_input = st.text_input("Ask me anything about YouSee Denmark offers (or type 'reset' to clear):")
-    
-    if user_input:
-        # Optionally allow the user to reset the conversation
+    # Use a form to handle user input and clear the field after submission.
+    with st.form(key="qa_form", clear_on_submit=True):
+        user_input = st.text_input("Ask me anything about telco offers (or type 'reset' to clear):")
+        submit_button = st.form_submit_button(label="Submit")
+
+    if submit_button and user_input:
+        # Allow the user to reset the conversation.
         if user_input.strip().lower() == "reset":
             st.session_state.conversation = []
             st.experimental_rerun()
+        else:
+            # Append the user's question to the conversation history.
+            st.session_state.conversation.append(("user", user_input))
+            
+            # Prepare the input for the graph using the entire conversation history.
+            inputs = {
+                "messages": st.session_state.conversation,
+            }
+            
+            final_message_content = ""
+            # Process the input through the graph (assumes 'graph' is defined globally).
+            for output in graph.stream(inputs, config):
+                for key, value in output.items():
+                    # Check if the value is a dict containing messages.
+                    if isinstance(value, dict) and "messages" in value:
+                        for msg in value["messages"]:
+                            if hasattr(msg, "content"):
+                                final_message_content = msg.content + "\n"
+                                # Append the assistant response to conversation history.
+                                st.session_state.conversation.append(("assistant", msg.content))
+                            else:
+                                final_message_content = str(msg) + "\n"
+                                st.session_state.conversation.append(("assistant", str(msg)))
+            
+            # Render the final response.
+            st.markdown(final_message_content)
+            st.session_state.history+="################MESSAGE###############"
+            st.session_state.history+=final_message_content
         
-        # Append the user's question to the conversation history
-        st.session_state.conversation.append(("user", user_input))
-        
-        # Prepare the input for the graph using the entire conversation history
-        inputs = {
-            "messages": st.session_state.conversation,
-        }
-        
-        final_message_content = ""
-        # Process the input through the graph (assumes 'graph' is defined globally)
-        for output in graph.stream(inputs, config):
-            for key, value in output.items():
-                # Check if the value is a dict containing messages
-                if isinstance(value, dict) and "messages" in value:
-                    for msg in value["messages"]:
-                        # If the message object has the 'content' attribute, use it.
-                        if hasattr(msg, "content"):
-                            final_message_content = msg.content + "\n"
-                            # Append the assistant response to conversation history
-                            st.session_state.conversation.append(("assistant", msg.content))
-                        else:
-                            final_message_content = str(msg) + "\n"
-                            st.session_state.conversation.append(("assistant", str(msg)))
-        
-        # Render the final response
-        st.markdown(final_message_content)
-        
-        # Optionally, print the full conversation for debugging:
-        # pprint.pprint(st.session_state.conversation, indent=2, width=80)
 
 if __name__ == "__main__":
     run_virtual_assistant()
