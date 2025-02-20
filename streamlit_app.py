@@ -245,74 +245,70 @@ from typing import Annotated, Sequence
 from typing_extensions import TypedDict
 from langchain_core.messages import BaseMessage, AIMessage
 from langgraph.graph.message import add_messages
+import streamlit as st
 
-# Define AgentState without a retry_count field (since we'll use a global variable)
+# Initialize session state for conversation history if it doesn't exist.
+if "conversation" not in st.session_state:
+    st.session_state.conversation = []  # List of tuples like ("user", "question") or ("assistant", "response")
+
+# Initialize session state for retry count.
+if "retry_count" not in st.session_state:
+    st.session_state.retry_count = 0
+
+# Define AgentState (we don't include retry_count in AgentState because we'll use session state)
 class AgentState(TypedDict):
-    # The add_messages function defines how an update should be processed.
-    # Default is to replace; add_messages means "append."
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
-# Global variable to track retry count.
-global_retry_count = 0
-
-# New wrapper to limit retries using a global variable.
+# New wrapper to limit retries using session state.
 def grade_documents_limited(state) -> str:
-    global global_retry_count
-    print("---TEST global retry count is ---", global_retry_count)
+    # Use the retry count from session state
+    retry_count = st.session_state.retry_count
+    print("---TEST retry count is ---", retry_count)
 
     decision = grade_documents(state)  # This function must be defined elsewhere.
 
     if decision == "rewrite":
-        if global_retry_count >= 2:
-            # Maximum retries reached: return "final" instead of generating a response.
+        if retry_count >= 2:
+            # Maximum retries reached: return a special decision "final"
             print("---Maximum retries reached: switching to final response---")
             return "final"
         else:
-            # Increment the global retry counter and request a rewrite.
-            global_retry_count += 1
-            print("---after increment, global retry count is ---", global_retry_count)
+            # Increment the retry counter in session state.
+            st.session_state.retry_count = retry_count + 1
+            print("---after increment, retry count is ---", st.session_state.retry_count)
             return "rewrite"
     else:
         return decision
 
-# New node to return a final message.
+# New node to handle the final response.
 def final_response(state):
-    final_msg = ("Sorry, this question is beyond my knowledge, as a virtual assistant "
-                 "I can only assist you with your need on telecom service")
-    # Return a message wrapped in an AIMessage.
+    final_msg = ("Sorry, this question is beyond my knowledge, as a virtual assistant I can only assist you "
+                 "with your needs on telecom service")
     return {"messages": [AIMessage(content=final_msg)]}
 
 # Define a new graph.
 workflow = StateGraph(AgentState)
 
-# Define the nodes we will cycle between.
+# Define the nodes (agent, retrieve, rewrite, generate, and final_response).
 workflow.add_node("agent", agent)         # Agent node; function 'agent' must be defined.
 retrieve = ToolNode([retriever_tool])       # 'retriever_tool' must be defined.
 workflow.add_node("retrieve", retrieve)     # Retrieval node.
 workflow.add_node("rewrite", rewrite)       # Rewriting the question; function 'rewrite' must be defined.
 workflow.add_node("generate", generate)     # Generating the response; function 'generate' must be defined.
-workflow.add_node("final_response", final_response)  # Final message node.
+workflow.add_node("final_response", final_response)  # Final response node.
 
 # Build the edges.
-# Start by rewriting the query.
 workflow.add_edge(START, "rewrite")
-# After rewriting, call the agent node to decide whether to retrieve or not.
 workflow.add_edge("rewrite", "agent")
-
-# Conditional edge from the agent.
 workflow.add_conditional_edges(
     "agent",
-    # This condition uses tools_condition to decide if retrieval is needed.
     tools_condition,  # Function 'tools_condition' must be defined.
     {
-        # If the agent decides to use tools, go to "retrieve".
         "tools": "retrieve",
-        # Otherwise, end the graph.
         END: END,
     },
 )
-
-# After retrieval, use the limited grade_documents function to decide.
+# In the retrieval branch, use the limited grade_documents function.
 workflow.add_conditional_edges(
     "retrieve",
     grade_documents_limited,
@@ -322,24 +318,12 @@ workflow.add_conditional_edges(
         "final": "final_response"
     }
 )
-
-# When generation is completed, end the graph.
 workflow.add_edge("generate", END)
-# Also allow looping: after rewriting, go back to agent (if needed).
 workflow.add_edge("rewrite", "agent")
 
 # Compile the graph.
 memory = MemorySaver()
 graph = workflow.compile(checkpointer=memory)
-# Alternatively, if you don't need checkpointing, use:
-# graph = workflow.compile()
-
-# When running the graph, initialize the state.
-# For example, in your Streamlit app, you might use:
-# inputs = {
-#     "messages": [("user", user_input)],
-# }
-
 
 #############################################GUI#################################################
 import uuid
