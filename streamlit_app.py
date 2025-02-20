@@ -237,17 +237,13 @@ def generate(state):
     response = rag_chain.invoke({"context": docs, "question": question})
     return {"messages": [response]}
 
-
-
-#print("*" * 20 + "Prompt[rlm/rag-prompt]" + "*" * 20)
-#prompt = hub.pull("rlm/rag-prompt").pretty_print()  # Show what the prompt looks like
-
+################################# GRAPH##################################
 from langgraph.graph import END, StateGraph, START
 from langgraph.prebuilt import ToolNode
 from langgraph.checkpoint.memory import MemorySaver
 from typing import Annotated, Sequence
 from typing_extensions import TypedDict
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, AIMessage
 from langgraph.graph.message import add_messages
 
 # Define AgentState without a retry_count field (since we'll use a global variable)
@@ -267,9 +263,9 @@ def grade_documents_limited(state) -> str:
     decision = grade_documents(state)  # This function must be defined elsewhere.
 
     if decision == "rewrite":
-        if global_retry_count >= 1:
-            # Maximum retries reached: force to generate a response.
-            print("---Maximum retries reached: switching to generate---")
+        if global_retry_count >= 2:
+            # Maximum retries reached: return "final" instead of generating a response.
+            print("---Maximum retries reached: switching to final response---")
             return "final"
         else:
             # Increment the global retry counter and request a rewrite.
@@ -278,14 +274,13 @@ def grade_documents_limited(state) -> str:
             return "rewrite"
     else:
         return decision
-    
-# Define a new node for the final response.
-def final_response(state):
-    final_msg = ("Sorry, this question is beyond my knowledge, "
-                 "as a virtual assistant I can only assist you with your need on telecom service")
-    # Wrap the message in an AIMessage object.
-    return {"messages": [AIMessage(content=final_msg)]}
 
+# New node to return a final message.
+def final_response(state):
+    final_msg = ("Sorry, this question is beyond my knowledge, as a virtual assistant "
+                 "I can only assist you with your need on telecom service")
+    # Return a message wrapped in an AIMessage.
+    return {"messages": [AIMessage(content=final_msg)]}
 
 # Define a new graph.
 workflow = StateGraph(AgentState)
@@ -318,7 +313,6 @@ workflow.add_conditional_edges(
 )
 
 # After retrieval, use the limited grade_documents function to decide.
-# We update the mapping to handle our new "final" branch.
 workflow.add_conditional_edges(
     "retrieve",
     grade_documents_limited,
@@ -337,13 +331,15 @@ workflow.add_edge("rewrite", "agent")
 # Compile the graph.
 memory = MemorySaver()
 graph = workflow.compile(checkpointer=memory)
-#graph = workflow.compile()
+# Alternatively, if you don't need checkpointing, use:
+# graph = workflow.compile()
 
 # When running the graph, initialize the state.
 # For example, in your Streamlit app, you might use:
 # inputs = {
 #     "messages": [("user", user_input)],
 # }
+
 
 #############################################GUI#################################################
 import uuid
