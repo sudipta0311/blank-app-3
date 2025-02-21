@@ -319,7 +319,6 @@ workflow.add_conditional_edges(
     }
 )
 workflow.add_edge("generate", END)
-workflow.add_edge("final_response", END)
 workflow.add_edge("rewrite", "agent")
 
 # Compile the graph.
