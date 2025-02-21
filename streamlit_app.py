@@ -371,7 +371,7 @@ def run_virtual_assistant():
         else:
             # Append the user's question to the conversation history.
             st.session_state.conversation.append(("user", user_input))
-            
+            st.session_state.retry_count = 0
             
             # Prepare the input for the graph using the entire conversation history.
             inputs = {
