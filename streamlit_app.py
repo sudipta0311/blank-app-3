@@ -268,7 +268,7 @@ def grade_documents_limited(state) -> str:
     decision = grade_documents(state)  # This function must be defined elsewhere.
 
     if decision == "rewrite":
-        if retry_count >= 2:
+        if retry_count >= 1:
             # Maximum retries reached: return a special decision "final"
             print("---Maximum retries reached: switching to final response---")
             return "final"
@@ -365,10 +365,12 @@ def run_virtual_assistant():
         # Allow the user to reset the conversation.
         if user_input.strip().lower() == "reset":
             st.session_state.conversation = []
+            st.session_state.retry_count = 0
             st.experimental_rerun()
         else:
             # Append the user's question to the conversation history.
             st.session_state.conversation.append(("user", user_input))
+            st.session_state.retry_count = 0
             
             # Prepare the input for the graph using the entire conversation history.
             inputs = {
