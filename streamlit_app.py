@@ -114,7 +114,7 @@ def grade_documents(state) -> Literal["generate", "rewrite"]:
     )
 
     chain = prompt | llm_with_tool
-    
+
     messages = state["messages"]
     last_message = messages[-1]
 
@@ -125,6 +125,7 @@ def grade_documents(state) -> Literal["generate", "rewrite"]:
     docs = last_message.content
 
     scored_result = chain.invoke({"question": question, "context": docs})
+
     score = scored_result.binary_score
 
     if score == "yes":
@@ -157,6 +158,7 @@ def agent(state):
     model = model.bind_tools(tools)
     response = model.invoke(messages)
     # We return a list, because this will get added to the existing list
+
     return {"messages": [response]}
 
 
@@ -172,7 +174,7 @@ def rewrite(state):
     """
 
     print("---TRANSFORM QUERY FOR YOUSEE DENMARK---")
-    
+
     messages = state["messages"]
     #question = get_latest_user_question(messages)
     question = get_latest_user_question(st.session_state.conversation)
@@ -205,13 +207,13 @@ def rewrite(state):
 def generate(state):
     print("---GENERATE---")
     messages = state["messages"]
-    
+
     #question = get_latest_user_question(messages)
     question = get_latest_user_question(st.session_state.conversation)
     # Assume the last assistant message (or retrieved content) holds the context.
     last_message = messages[-1]
     docs = last_message.content
-    
+
     prompt = PromptTemplate(
         template="""You are a telecom sales agent specializing in providing the best offers and plans for customers.
         Your goal is to assist customers by answering their questions, providing relevant information based on the available context,
@@ -219,7 +221,6 @@ def generate(state):
         
         **Context Information:**
         {context}
-        
         **Customer's Question:**
         {question}
         
@@ -231,7 +232,7 @@ def generate(state):
         """,
         input_variables=["context", "question"],
     )
-    
+
     llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0, streaming=True)
     rag_chain = prompt | llm | StrOutputParser()
     response = rag_chain.invoke({"context": docs, "question": question})
@@ -250,8 +251,7 @@ import streamlit as st
 # Initialize session state for conversation history if it doesn't exist.
 if "conversation" not in st.session_state:
     st.session_state.conversation = []  # List of tuples like ("user", "question") or ("assistant", "response")
-
-# Initialize session state for retry count.
+    # Initialize session state for retry count.
 if "retry_count" not in st.session_state:
     st.session_state.retry_count = 0
 
@@ -262,10 +262,12 @@ class AgentState(TypedDict):
 # New wrapper to limit retries using session state.
 def grade_documents_limited(state) -> str:
     # Use the retry count from session state
-    retry_count = st.session_state.retry_count
-    print("---TEST retry count is ---", retry_count)
+
+
 
     decision = grade_documents(state)  # This function must be defined elsewhere.
+    retry_count = st.session_state.retry_count +1
+    print("---TEST retry count is ---", retry_count)
 
     if decision == "rewrite":
         if retry_count >= 1:
@@ -279,8 +281,8 @@ def grade_documents_limited(state) -> str:
             return "rewrite"
     else:
         return decision
-
-# New node to handle the final response.
+    
+    # New node to handle the final response.
 def final_response(state):
     final_msg = ("Sorry, this question is beyond my knowledge, as a virtual assistant I can only assist you "
                  "with your needs on telecom service")
@@ -349,7 +351,7 @@ if "conversation" not in st.session_state:
 
 def run_virtual_assistant():
     st.title("Virtual Agent")
-    
+
     # Display conversation history if available.
     if st.session_state.conversation:
         with st.expander("Click here to see the old conversation"):
@@ -371,11 +373,10 @@ def run_virtual_assistant():
             # Append the user's question to the conversation history.
             st.session_state.conversation.append(("user", user_input))
             st.session_state.retry_count = 0
-            
+
             # Prepare the input for the graph using the entire conversation history.
             inputs = {
-                "messages": st.session_state.conversation,
-            }
+                "messages": st.session_state.conversation,            }
             
             final_message_content = ""
             # Process the input through the graph (assumes 'graph' is defined globally).
@@ -391,13 +392,12 @@ def run_virtual_assistant():
                             else:
                                 final_message_content = str(msg) + "\n"
                                 st.session_state.conversation.append(("assistant", str(msg)))
-            
+
             # Render the final response.
             st.markdown(final_message_content)
-            st.session_state.retry_count = 0
             st.session_state.history+="################MESSAGE###############"
             st.session_state.history+=final_message_content
-        
+
 
 if __name__ == "__main__":
     run_virtual_assistant()
