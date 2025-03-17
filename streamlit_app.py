@@ -1,7 +1,7 @@
-from langchain_openai import OpenAIEmbeddings
-import streamlit as st
+import getpass
 import os
 
+import streamlit as st
 
 # Retrieve secrets using st.secrets
 # Add an environment variable
@@ -32,6 +32,7 @@ embeddings = AzureOpenAIEmbeddings(
 )
 
 ################################# VECTOR STORE ###########################################
+
 
 # Load existing vector store
 
