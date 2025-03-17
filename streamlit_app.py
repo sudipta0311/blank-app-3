@@ -372,10 +372,6 @@ config = {"configurable": {"thread_id": st.session_state.thread_id}}
 if "history" not in st.session_state:
     st.session_state.history = ""
 
-
-import pprint
-
-
 # Initialize session state for conversation history if it doesn't exist.
 if "conversation" not in st.session_state:
     st.session_state.conversation = []  # List of tuples like ("user", "question") or ("assistant", "response")
@@ -387,7 +383,7 @@ def run_virtual_assistant():
     if st.session_state.conversation:
         with st.expander("Click here to see the old conversation"):
             st.subheader("Conversation History")
-            st.markdown({st.session_state.history})
+            st.markdown(st.session_state.history)
 
     # Use a form to handle user input and clear the field after submission.
     with st.form(key="qa_form", clear_on_submit=True):
@@ -398,7 +394,7 @@ def run_virtual_assistant():
         # Allow the user to reset the conversation.
         if user_input.strip().lower() == "reset":
             st.session_state.conversation = []
-            st.session_state.retry_count = 0
+            st.session_state.history = ""
             st.experimental_rerun()
         else:
             # Append the user's question to the conversation history.
@@ -406,10 +402,14 @@ def run_virtual_assistant():
             st.session_state.retry_count = 0
 
             # Prepare the input for the graph using the entire conversation history.
-            inputs = {
-                "messages": st.session_state.conversation,            }
+            inputs = {"messages": st.session_state.conversation}
             
+            # Display "Assistant typing..."
+            typing_placeholder = st.empty()
+            typing_placeholder.markdown("**Assistant typing...**")
+
             final_message_content = ""
+            
             # Process the input through the graph (assumes 'graph' is defined globally).
             for output in graph.stream(inputs, config):
                 for key, value in output.items():
@@ -424,11 +424,10 @@ def run_virtual_assistant():
                                 final_message_content = str(msg) + "\n"
                                 st.session_state.conversation.append(("assistant", str(msg)))
 
-            # Render the final response.
+            # Clear "Assistant typing..." and display the response
+            typing_placeholder.empty()
             st.markdown(final_message_content)
-            st.session_state.history+="################MESSAGE###############"
-            st.session_state.history+=final_message_content
-
+            st.session_state.history += "################MESSAGE###############\n" + final_message_content
 
 if __name__ == "__main__":
     run_virtual_assistant()
