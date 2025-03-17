@@ -1,15 +1,37 @@
 from langchain_openai import OpenAIEmbeddings
 import streamlit as st
-
-
 import os
 
-# Retrieve secrets using st.secrets
-OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY")
-LANGCHAIN_TRACING_V2 = st.secrets.get("LANGCHAIN_TRACING_V2")
-LANGCHAIN_API_KEY = st.secrets.get("LANGCHAIN_API_KEY")
-PINECONE_API_KEY = st.secrets.get("PINECONE_API_KEY")
 
+# Retrieve secrets using st.secrets
+# Add an environment variable
+AZURE_OPENAI_API_KEY = st.secrets.get("AZURE_OPENAI_API_KEY")
+AZURE_OPENAI_ENDPOINT = st.secrets.get("AZURE_OPENAI_ENDPOINT")
+AZURE_OPENAI_DEPLOYMENT_NAME= st.secrets.get("AZURE_OPENAI_DEPLOYMENT_NAME")
+AZURE_OPENAI_API_VERSION= st.secrets.get("AZURE_OPENAI_API_VERSION") 
+
+
+from langchain_openai import AzureChatOpenAI
+
+llm = AzureChatOpenAI(
+    azure_endpoint=AZURE_OPENAI_ENDPOINT,
+    azure_deployment=AZURE_OPENAI_DEPLOYMENT_NAME,
+    openai_api_version=AZURE_OPENAI_API_VERSION,
+)
+
+import getpass
+import os
+
+
+from langchain_openai import AzureOpenAIEmbeddings
+
+embeddings = AzureOpenAIEmbeddings(
+    azure_endpoint=os.environ['AZURE_OPENAI_ENDPOINT'],
+    azure_deployment='text-embedding-3-large',
+    openai_api_version='2023-05-15',
+)
+
+################################# VECTOR STORE ###########################################
 
 # Load existing vector store
 
@@ -17,10 +39,10 @@ from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone
 from langchain_openai import OpenAIEmbeddings
 
-pc = Pinecone(api_key=PINECONE_API_KEY)
+pc = Pinecone('pcsk_2yWxfV_RzZcenPUjLkzMK78P8D2MEX6yfzSZJ2GYCKCfkiHUpgbj8ekG4yWfue7JJsEYtr')
 
 
-embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
+#embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
 
 # vector store 
 index_name = "demoindex"
@@ -35,8 +57,8 @@ from langchain.tools.retriever import create_retriever_tool
 
 retriever_tool = create_retriever_tool(
     retriever,
-    "retrieve_blog_posts",
-    "Search and return information abput telecom products.",
+    "retrieve_yousee_offers",
+    "Search and return information from knowlodge base on yousee denmark product offers.",
 )
 
 tools = [retriever_tool]
@@ -98,7 +120,7 @@ def grade_documents(state) -> Literal["generate", "rewrite"]:
         binary_score: str = Field(description="Relevance score 'yes' or 'no'")
 
     # LLM
-    model = ChatOpenAI(temperature=0, model="gpt-4-0125-preview", streaming=True)
+    model = llm
 
     # LLM with tool and validation
     llm_with_tool = model.with_structured_output(grade,method="function_calling")
@@ -154,7 +176,8 @@ def agent(state):
     """
     print("---CALL AGENT---")
     messages = state["messages"]
-    model = ChatOpenAI(temperature=0, streaming=True, model="gpt-4-turbo")
+    print("Messages before invoking model:", messages)
+    model = llm
     model = model.bind_tools(tools)
     response = model.invoke(messages)
     # We return a list, because this will get added to the existing list
@@ -196,7 +219,7 @@ def rewrite(state):
     ]
 
     # Invoke the model to rephrase the question with Airtel context
-    model = ChatOpenAI(temperature=0, model="gpt-4-0125-preview", streaming=True)
+    model = llm
     response = model.invoke(msg)
     print("relevent conextualized question=" + response.content)
 
@@ -233,7 +256,7 @@ def generate(state):
         input_variables=["context", "question"],
     )
 
-    llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0, streaming=True)
+   # llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0, streaming=True)
     rag_chain = prompt | llm | StrOutputParser()
     response = rag_chain.invoke({"context": docs, "question": question})
     return {"messages": [response]}
