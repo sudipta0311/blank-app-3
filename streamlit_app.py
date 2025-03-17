@@ -59,7 +59,7 @@ from langchain.tools.retriever import create_retriever_tool
 retriever_tool = create_retriever_tool(
     retriever,
     "get_product_info",
-    "Search and return product and service information for Yousee Denmark",
+    "Retrieve yousee products offers from knowlodge base based on  given query.",
 )
 
 tools = [retriever_tool]
