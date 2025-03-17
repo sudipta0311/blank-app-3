@@ -177,14 +177,21 @@ def agent(state):
     """
     print("---CALL AGENT---")
     messages = state["messages"]
-    #print("Messages before invoking model:", messages)
-    model = llm
+
+    # Summarizing long messages before sending them to the model
+    def summarize_message(msg):
+        if isinstance(msg, AIMessage) and len(msg.content) > 1000:
+            return AIMessage(content=msg.content[:997] + "...")
+        return msg
+
+    messages = [summarize_message(msg) for msg in messages]
+   
+    model=llm
     model = model.bind_tools(tools)
     response = model.invoke(messages)
     # We return a list, because this will get added to the existing list
 
     return {"messages": [response]}
-
 
 def rewrite(state):
     """
