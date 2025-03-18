@@ -195,43 +195,53 @@ def agent(state):
 
 def rewrite(state):
     """
-    Transform the query to produce a better question contextualized for YOUSEE DENMARK.
-
+    Transform the query to produce a better question contextualized for YOUSEE DENMARK,
+    considering follow-up questions and previous queries.
+    
     Args:
         state (messages): The current state
 
     Returns:
         dict: The updated state with a re-phrased question specific to YOUSEE DENMARK
     """
-
     print("---TRANSFORM QUERY FOR YOUSEE DENMARK---")
-
+    
     messages = state["messages"]
-    #question = get_latest_user_question(messages)
-    question = get_latest_user_question(st.session_state.conversation)
-
-
-    # Prompt to force contextualization for YOUSEE DENMARK
+    latest_question = get_latest_user_question(st.session_state.conversation)
+    
+    # Retrieve the last user question to check for context
+    previous_questions = [msg[1] for msg in st.session_state.conversation if msg[0] == "user"]
+    last_question = previous_questions[-2] if len(previous_questions) > 1 else ""
+    
+    # Determine if the new question is a follow-up
+    follow_up_indicators = ["price", "tell me more", "what about", "explain more", "how does it work", "and?"]
+    is_follow_up = any(indicator in latest_question.lower() for indicator in follow_up_indicators)
+    
+    if is_follow_up and last_question:
+        combined_question = f"{last_question} Follow-up: {latest_question}"
+    else:
+        combined_question = latest_question
+    
+    # Prompt to force contextualization for YouSee Denmark
     msg = [
         HumanMessage(
             content=f"""
-        You are a virtual assistant specializing in Yousee denmark.
-        Your job is to refine the user's question to be more specific to Yousee Denmark’s services, plans, network, or offers.
-
-        **User's Original Question:**
-        {question}
-
-        **Rewritten Question (must be relevant to Yousee denmark):**
-        """,
+            You are a virtual assistant specializing in YouSee Denmark.
+            Your job is to refine the user's question to be more specific to YouSee Denmark’s services, plans, network, or offers.
+            
+            **User's Original Question:**
+            {combined_question}
+            
+            **Rewritten Question (must be relevant to YouSee Denmark):**
+            """,
         )
     ]
-
-    # Invoke the model to rephrase the question with Airtel context
+    
+    # Invoke the model to rephrase the question
     model = llm
     response = model.invoke(msg)
-    print("relevent conextualized question=" + response.content)
-
-    print(response.content)
+    
+    print("Relevant contextualized question=" + response.content)
     return {"messages": [response]}
 
 
@@ -407,7 +417,7 @@ def run_virtual_assistant():
             
             # Display blinking "Assistant typing..."
             typing_placeholder = st.empty()
-            for _ in range(10):  # Flashing effect
+            for _ in range(25):  # Flashing effect
                 typing_placeholder.markdown("**Assistant typing...**")
                 time.sleep(0.5)
                 typing_placeholder.markdown(" ")
