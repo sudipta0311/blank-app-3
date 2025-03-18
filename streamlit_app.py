@@ -416,7 +416,7 @@ def run_virtual_assistant():
             
             # Display "Assistant typing..."
             typing_placeholder = st.empty()
-            typing_placeholder.markdown("**Assistant typing...**")
+            typing_placeholder.markdown("**Assistant typing...⏳**")
 
             final_message_content = ""
             
