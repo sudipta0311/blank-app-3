@@ -369,10 +369,8 @@ memory = MemorySaver()
 graph = workflow.compile(checkpointer=memory)
 
 #############################################GUI#################################################
-import streamlit as st
-import time
 import uuid
-import threading
+import streamlit as st
 
 # Generate a thread_id dynamically if it doesn't exist in session state.
 if "thread_id" not in st.session_state:
@@ -381,23 +379,12 @@ if "thread_id" not in st.session_state:
 # Now use the dynamically generated thread_id in your config.
 config = {"configurable": {"thread_id": st.session_state.thread_id}}
 
-# Initialize session states if they don’t exist
 if "history" not in st.session_state:
     st.session_state.history = ""
 
+# Initialize session state for conversation history if it doesn't exist.
 if "conversation" not in st.session_state:
     st.session_state.conversation = []  # List of tuples like ("user", "question") or ("assistant", "response")
-
-if "typing_flag" not in st.session_state:
-    st.session_state.typing_flag = False  # Controls blinking effect
-
-# Function to run the "Assistant typing..." effect in a separate thread
-def blink_typing(placeholder):
-    while st.session_state.typing_flag:
-        placeholder.markdown("**Assistant typing...** ⏳")
-        time.sleep(0.5)
-        placeholder.markdown("")
-        time.sleep(0.5)
 
 def run_virtual_assistant():
     st.title("Virtual Agent")
@@ -414,45 +401,44 @@ def run_virtual_assistant():
         submit_button = st.form_submit_button(label="Submit")
 
     if submit_button and user_input:
+        # Allow the user to reset the conversation.
         if user_input.strip().lower() == "reset":
             st.session_state.conversation = []
             st.session_state.history = ""
             st.experimental_rerun()
         else:
+            # Append the user's question to the conversation history.
             st.session_state.conversation.append(("user", user_input))
             st.session_state.retry_count = 0
+
+            # Prepare the input for the graph using the entire conversation history.
             inputs = {"messages": st.session_state.conversation}
-
-            # Create a placeholder for "Assistant typing..."
+            
+            # Display "Assistant typing..."
             typing_placeholder = st.empty()
-
-            # Start the blinking effect in a separate thread
-            st.session_state.typing_flag = True
-            typing_thread = threading.Thread(target=blink_typing, args=(typing_placeholder,))
-            typing_thread.start()
+            typing_placeholder.markdown("**Assistant typing...**")
 
             final_message_content = ""
-
-            # Process the input through the graph (Runs in the main thread)
+            
+            # Process the input through the graph (assumes 'graph' is defined globally).
             for output in graph.stream(inputs, config):
                 for key, value in output.items():
+                    # Check if the value is a dict containing messages.
                     if isinstance(value, dict) and "messages" in value:
                         for msg in value["messages"]:
                             if hasattr(msg, "content"):
                                 final_message_content = msg.content + "\n"
+                                # Append the assistant response to conversation history.
                                 st.session_state.conversation.append(("assistant", msg.content))
                             else:
                                 final_message_content = str(msg) + "\n"
                                 st.session_state.conversation.append(("assistant", str(msg)))
 
-            # Stop blinking and show the final response
-            st.session_state.typing_flag = False
-            typing_thread.join()  # Ensure the thread stops before continuing
+            # Clear "Assistant typing..." and display the response
             typing_placeholder.empty()
             st.markdown(final_message_content)
             st.session_state.history += "################MESSAGE###############\n" + final_message_content
 
 if __name__ == "__main__":
     run_virtual_assistant()
-
 
