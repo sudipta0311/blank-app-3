@@ -46,7 +46,7 @@ pc = Pinecone('pcsk_2yWxfV_RzZcenPUjLkzMK78P8D2MEX6yfzSZJ2GYCKCfkiHUpgbj8ekG4yWf
 #embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
 
 # vector store 
-index_name = "virtualagent"
+index_name = "demoindex"
 
 index = pc.Index(index_name)
 
