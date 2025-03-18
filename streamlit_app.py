@@ -361,6 +361,7 @@ graph = workflow.compile(checkpointer=memory)
 #############################################GUI#################################################
 import uuid
 import streamlit as st
+import time
 
 # Generate a thread_id dynamically if it doesn't exist in session state.
 if "thread_id" not in st.session_state:
@@ -404,10 +405,14 @@ def run_virtual_assistant():
             # Prepare the input for the graph using the entire conversation history.
             inputs = {"messages": st.session_state.conversation}
             
-            # Display "Assistant typing..."
+            # Display blinking "Assistant typing..."
             typing_placeholder = st.empty()
-            typing_placeholder.markdown("**Assistant typing...**")
-
+            for _ in range(10):  # Flashing effect
+                typing_placeholder.markdown("**Assistant typing...**")
+                time.sleep(0.5)
+                typing_placeholder.markdown(" ")
+                time.sleep(0.5)
+            
             final_message_content = ""
             
             # Process the input through the graph (assumes 'graph' is defined globally).
