@@ -209,18 +209,20 @@ def rewrite(state):
     messages = state["messages"]
     latest_question = get_latest_user_question(st.session_state.conversation)
     
+    
     # Retrieve the last user question to check for context
     previous_questions = [msg[1] for msg in st.session_state.conversation if msg[0] == "user"]
     last_question = previous_questions[-2] if len(previous_questions) > 1 else ""
     
     # Determine if the new question is a follow-up
-    follow_up_indicators = ["price", "tell", "what about", "explain more", "how", "and?","where"]
+    follow_up_indicators = ["price", "tell", "what", "explain more", "how", "and?","where"]
     is_follow_up = any(indicator in latest_question.lower() for indicator in follow_up_indicators)
     
     if is_follow_up and last_question:
         combined_question = f"{last_question} Follow-up: {latest_question}"
     else:
         combined_question = latest_question
+
     
     # Prompt to force contextualization for YouSee Denmark
     msg = [
@@ -230,7 +232,7 @@ def rewrite(state):
             Your job is to refine the user's question to be more specific to YouSee Denmark’s services, plans, network, or offers.
             
             **User's Original Question:**
-            {combined_question}
+            {latest_question}
             
             **Rewritten Question (must be relevant to YouSee Denmark):**
             """,
