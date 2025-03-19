@@ -214,7 +214,7 @@ def rewrite(state):
     last_question = previous_questions[-2] if len(previous_questions) > 1 else ""
     
     # Determine if the new question is a follow-up
-    follow_up_indicators = ["price", "tell me more", "what about", "explain more", "how does it work", "and?"]
+    follow_up_indicators = ["price", "tell", "what about", "explain more", "how", "and?","where"]
     is_follow_up = any(indicator in latest_question.lower() for indicator in follow_up_indicators)
     
     if is_follow_up and last_question:
