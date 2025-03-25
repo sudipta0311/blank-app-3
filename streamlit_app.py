@@ -46,13 +46,17 @@ pc = Pinecone('pcsk_2yWxfV_RzZcenPUjLkzMK78P8D2MEX6yfzSZJ2GYCKCfkiHUpgbj8ekG4yWf
 #embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
 
 # vector store 
-index_name = "demoindex1"
+index_name = "assistanttelco"
 
 index = pc.Index(index_name)
 
 vector_store = PineconeVectorStore(index=index, embedding=embeddings)
 
-retriever = vector_store.as_retriever()
+
+# Create retriever with metadata filtering support (optional)
+retriever = vector_store.as_retriever(
+     search_kwargs={"filter": None}  # Initially set to None, updated dynamically
+)
 
 from langchain.tools.retriever import create_retriever_tool
 
@@ -63,6 +67,91 @@ retriever_tool = create_retriever_tool(
 )
 
 tools = [retriever_tool]
+
+
+########################### METADATA Identify ##########################################
+
+from typing import Sequence, Annotated, TypedDict, Optional
+from pydantic import BaseModel, Field
+from langchain_core.messages import BaseMessage
+from langchain_core.prompts import ChatPromptTemplate
+
+
+# Define MetadataFilter separately
+class MetadataFilter(BaseModel):
+    category: Optional[str] = Field(
+        None,
+        description="Category of the item (phone, plans, accessories, TV, fixed internet)."
+    )
+    brand: Optional[str] = Field(
+        None,
+        description="Brand name if specified (e.g., Samsung, Apple)."
+    )
+
+# Define MetadataQuery using MetadataFilter
+class MetadataQuery(BaseModel):
+    metadata_filter: MetadataFilter = Field(
+        ...,
+        description="Metadata filter containing category and brand."
+    )
+
+    class Config:
+        json_schema_extra = {
+            "required": ["metadata_filter"]
+        }
+def get_metadata_extractor(state):
+    """Extracts metadata from a user's question and updates the state."""
+
+    # LLM with function call
+    structured_llm_metadata = llm.with_structured_output(MetadataQuery, method="function_calling")
+
+    # System prompt
+    system = """
+    You are an expert at identifying the correct metadata filters for a search query in a vector store. 
+    The vector store contains documents categorized under:
+    - phone
+    - tablet
+    - watch
+    - plans
+    - subscription
+    - accessories
+    - ott
+    - fixed internet 
+    - 5g
+    Additionally, the documents may have a 'brand' metadata field for filtering by brand.
+
+    Instructions:
+    - Identify the appropriate category based on the user's question.
+    - If the question specifies a particular brand, include it in the metadata filter.
+    - Return the metadata filter in JSON format.
+    """
+
+    get_latest_user_question(st.session_state.conversation)
+    metadata_prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system),
+            ("human", "{question}"),
+        ]
+    )
+
+    metadata_extractor = metadata_prompt | structured_llm_metadata
+
+    # Extract metadata
+    extracted_metadata = metadata_extractor.invoke({"question": state["messages"][-1].content})
+
+    # Filter out None values from the extracted metadata
+    metadata_dict = extracted_metadata.metadata_filter.model_dump()
+    filtered_metadata = {k: v for k, v in metadata_dict.items() if v is not None}
+
+    # Update state based on whether metadata was found
+    if filtered_metadata:
+        state["metadata_filter"] = filtered_metadata  # Override with new metadata
+    elif "metadata_filter" in state:
+        del state["metadata_filter"]  # Remove old metadata if no new metadata found
+
+    return {"metadata_filter": [filtered_metadata]} if filtered_metadata else {}
+
+
 
 ############################# Utility tasks ############################################
 from typing import Annotated, Sequence
@@ -76,6 +165,7 @@ class AgentState(TypedDict):
     # The add_messages function defines how an update should be processed
     # Default is to replace. add_messages says "append"
     messages: Annotated[Sequence[BaseMessage], add_messages]
+    metadata_filter: [dict]
 
 from typing import Annotated, Literal, Sequence
 from typing_extensions import TypedDict
@@ -177,6 +267,13 @@ def agent(state):
     """
     print("---CALL AGENT---")
     messages = state["messages"]
+     # Extract metadata dynamically
+    get_metadata_extractor(state)
+    metadata_filter = state.get("metadata_filter", None)
+
+    print("---metadata----")
+    print(metadata_filter)
+
 
     # Summarizing long messages before sending them to the model
     def summarize_message(msg):
@@ -185,7 +282,16 @@ def agent(state):
         return msg
 
     messages = [summarize_message(msg) for msg in messages]
-   
+
+    # Bind tools dynamically with metadata-aware retriever
+    
+    global retriever
+
+    retriever = vector_store.as_retriever(
+    search_kwargs = {"filter": metadata_filter} if metadata_filter else {}  #
+    )
+
+    
     model=llm
     model = model.bind_tools(tools)
     response = model.invoke(messages)
@@ -297,10 +403,6 @@ if "conversation" not in st.session_state:
     # Initialize session state for retry count.
 if "retry_count" not in st.session_state:
     st.session_state.retry_count = 0
-
-# Define AgentState (we don't include retry_count in AgentState because we'll use session state)
-class AgentState(TypedDict):
-    messages: Annotated[Sequence[BaseMessage], add_messages]
 
 # New wrapper to limit retries using session state.
 def grade_documents_limited(state) -> str:
@@ -442,4 +544,3 @@ def run_virtual_assistant():
 
 if __name__ == "__main__":
     run_virtual_assistant()
-
