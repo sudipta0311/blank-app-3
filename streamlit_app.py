@@ -1,22 +1,23 @@
-import getpass
+import streamlit as st
 import os
 
-import streamlit as st
+
 
 # Retrieve secrets using st.secrets
 # Add an environment variable
-AZURE_OPENAI_API_KEY = st.secrets.get("AZURE_OPENAI_API_KEY")
-AZURE_OPENAI_ENDPOINT = st.secrets.get("AZURE_OPENAI_ENDPOINT")
-AZURE_OPENAI_DEPLOYMENT_NAME= st.secrets.get("AZURE_OPENAI_DEPLOYMENT_NAME")
-AZURE_OPENAI_API_VERSION= st.secrets.get("AZURE_OPENAI_API_VERSION") 
+os.environ['AZURE_OPENAI_API_KEY'] = 'gVRCQ3ysiYaF3OZAPwCCV3xarPxrMTnnR80foZZ1RN4GxuuzArw3JQQJ99ALACYeBjFXJ3w3AAABACOGAhlP'
+os.environ['AZURE_OPENAI_ENDPOINT'] = 'https://demoai4967.openai.azure.com/'
+os.environ['AZURE_OPENAI_DEPLOYMENT_NAME'] = 'gpt-4o'
+os.environ['AZURE_OPENAI_API_VERSION'] = '2024-08-01-preview'
 
+os.environ['PINECONE_API_KEY'] = 'pcsk_2yWxfV_RzZcenPUjLkzMK78P8D2MEX6yfzSZJ2GYCKCfkiHUpgbj8ekG4yWfue7JJsEYtr'
 
 from langchain_openai import AzureChatOpenAI
 
 llm = AzureChatOpenAI(
-    azure_endpoint=AZURE_OPENAI_ENDPOINT,
-    azure_deployment=AZURE_OPENAI_DEPLOYMENT_NAME,
-    openai_api_version=AZURE_OPENAI_API_VERSION,
+    azure_endpoint=os.environ['AZURE_OPENAI_ENDPOINT'],
+    azure_deployment=os.environ['AZURE_OPENAI_DEPLOYMENT_NAME'],
+    openai_api_version=os.environ['AZURE_OPENAI_API_VERSION'],
 )
 
 import getpass
@@ -31,6 +32,7 @@ embeddings = AzureOpenAIEmbeddings(
     openai_api_version='2023-05-15',
 )
 
+
 ################################# VECTOR STORE ###########################################
 
 
@@ -43,8 +45,6 @@ from langchain_openai import OpenAIEmbeddings
 pc = Pinecone('pcsk_2yWxfV_RzZcenPUjLkzMK78P8D2MEX6yfzSZJ2GYCKCfkiHUpgbj8ekG4yWfue7JJsEYtr')
 
 
-#embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
-
 # vector store 
 index_name = "assistanttelco"
 
@@ -52,25 +52,114 @@ index = pc.Index(index_name)
 
 vector_store = PineconeVectorStore(index=index, embedding=embeddings)
 
+retriever = vector_store.as_retriever()
 
-# Create retriever with metadata filtering support (optional)
-retriever = vector_store.as_retriever(
-     search_kwargs={"filter": None}  # Initially set to None, updated dynamically
-)
+################################# AGENT STATE ###########################################
 
-from langchain.tools.retriever import create_retriever_tool
+from typing import Annotated, Sequence
+from typing_extensions import TypedDict
+from typing import List
 
-retriever_tool = create_retriever_tool(
-    retriever,
-    "get_product_info",
-    "Retrieve yousee products offers from knowlodge base based on  given query.",
-)
+from langchain_core.messages import BaseMessage
 
-tools = [retriever_tool]
+from langgraph.graph.message import add_messages
+
+class AgentState(TypedDict):
+    # The add_messages function defines how an update should be processed
+    # Default is to replace. add_messages says "append"
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    metadata_filter: [dict]
+    question: str
+    generation: str
+    documents: List[str]  
+
+
+############################ GET QUESTION################################
+
+from langchain import hub
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
+
+from pydantic import BaseModel, Field
+
+
+from langgraph.prebuilt import tools_condition
+
+def get_latest_user_question(messages):
+    # Iterate over the messages in reverse order
+    for role, content in reversed(messages):
+        if role.lower() == "user":
+            return content
+    return ""
+
+
+################################# Question rewriter ###################################
+
+def transform_query(state):
+    """
+    Transform the query to produce a better question optimized for vector store retrieval.
+
+    Args:
+        state (dict): The current graph state
+
+    Returns:
+        dict: Updated state with a re-phrased question
+    """
+    print("---TRANSFORM QUERY---")
+
+    latest_question = get_latest_user_question(st.session_state.conversation)
+    
+    # Retrieve the last user question to check for context
+    previous_questions = [msg[1] for msg in st.session_state.conversation if msg[0] == "user"]
+    last_question = previous_questions[-2] if len(previous_questions) > 1 else ""
+    
+    # Use LLM to determine if the question is a follow-up
+    follow_up_check_prompt = ChatPromptTemplate.from_messages([
+        ("system", "You are an AI assistant that determines if a question is a follow-up to a previous one. "
+        "A follow-up question continues the context of the previous question "
+        "and does not introduce a new product, topic, or category."),
+        ("human", "Previous question: {last_question}"
+        "\nNew question: {latest_question}\nIs this a follow-up question? Answer 'yes' or 'no'. "
+        "Consider it 'no' if the new question shifts to a different product, topic, or category.")
+    ])
+    
+    follow_up_checker = follow_up_check_prompt | llm | StrOutputParser()
+    is_follow_up = follow_up_checker.invoke({"last_question": last_question, "latest_question": latest_question}).strip().lower() == "yes"
+    
+    if is_follow_up and last_question:
+        combined_question = f"{last_question} Follow-up: {latest_question}"
+    else:
+        combined_question = latest_question
+    
+    # Question re-writer prompt
+    system = """You are a virtual assistant specializing in YouSee Denmark. 
+            Your job is to refine the user's question to be more specific to YouSee Denmark’s services, plans, network, or offers. 
+
+            Additionally, you are a question re-writer that converts an input question into a better version optimized for vector store retrieval. 
+            Analyze the input and reason about the underlying semantic intent or meaning to generate a more precise and relevant question. 
+
+            Ensure that the rewritten question remains relevant to YouSee Denmark."""
+
+    re_write_prompt = ChatPromptTemplate.from_messages([
+        ("system", system),
+        ("human", "Here is the initial question: \n\n {question} \n Formulate an improved question.")
+    ])
+
+    question_rewriter = re_write_prompt | llm | StrOutputParser()
+
+    # Invoke re-writer
+    better_question = question_rewriter.invoke({"question": combined_question})
+
+    st.session_state.conversation.append(("user", better_question))
+    state["question"] = better_question
+
+    print("---New question---" + state["question"])
+    return {"question": better_question}
+
 
 
 ########################### METADATA Identify ##########################################
-
 from typing import Sequence, Annotated, TypedDict, Optional
 from pydantic import BaseModel, Field
 from langchain_core.messages import BaseMessage
@@ -126,7 +215,7 @@ def get_metadata_extractor(state):
     - Return the metadata filter in JSON format.
     """
 
-    get_latest_user_question(st.session_state.conversation)
+    question = state["question"]
     metadata_prompt = ChatPromptTemplate.from_messages(
         [
             ("system", system),
@@ -152,44 +241,44 @@ def get_metadata_extractor(state):
     return {"metadata_filter": [filtered_metadata]} if filtered_metadata else {}
 
 
+############################ RETRIEVER ################################
+from langchain.schema import Document
 
-############################# Utility tasks ############################################
-from typing import Annotated, Sequence
-from typing_extensions import TypedDict
+def retrieve(state):
+    """
+    Retrieve documents
 
-from langchain_core.messages import BaseMessage
+    Args:
+        state (dict): The current graph state
 
-from langgraph.graph.message import add_messages
+    Returns:
+        state (dict): New key added to state, documents, that contains retrieved documents
+    """
+    print("---RETRIEVE---")
 
-class AgentState(TypedDict):
-    # The add_messages function defines how an update should be processed
-    # Default is to replace. add_messages says "append"
-    messages: Annotated[Sequence[BaseMessage], add_messages]
-    metadata_filter: [dict]
+    question = state["question"]
+    get_metadata_extractor(state)  # Extract metadata
+
+    metadata_filter = state.get("metadata_filter", None)  # Get metadata if available
+
+    print("---METADATA---")
+    print(metadata_filter if metadata_filter else "No metadata filtering applied")
+
+    # Perform retrieval with or without metadata filtering
+    if metadata_filter:
+        documents = retriever.invoke(question, filter=metadata_filter)
+    else:
+        documents = retriever.invoke(question)
+
+    print("---DOCUMENTS---")
+    print(documents)
+
+    return {"documents": documents, "question": question}
+
+
+#############################################GRAGE###############################################
 
 from typing import Annotated, Literal, Sequence
-from typing_extensions import TypedDict
-
-from langchain import hub
-from langchain_core.messages import BaseMessage, HumanMessage
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import PromptTemplate
-from langchain_openai import ChatOpenAI
-
-from pydantic import BaseModel, Field
-
-
-from langgraph.prebuilt import tools_condition
-
-def get_latest_user_question(messages):
-    # Iterate over the messages in reverse order
-    for role, content in reversed(messages):
-        if role.lower() == "user":
-            return content
-    return ""
-
-### Edges
-
 
 def grade_documents(state) -> Literal["generate", "rewrite"]:
     """
@@ -228,16 +317,14 @@ def grade_documents(state) -> Literal["generate", "rewrite"]:
 
     chain = prompt | llm_with_tool
 
-    messages = state["messages"]
-    last_message = messages[-1]
+    documents = state["documents"]
+    question = state["question"]
 
-    #question = messages[0].content
-    #question = get_latest_user_question(messages)
-    question = get_latest_user_question(st.session_state.conversation)
+    print(" graded question "+ question)
 
-    docs = last_message.content
+    #print("retrived doc =" + docs)
 
-    scored_result = chain.invoke({"question": question, "context": docs})
+    scored_result = chain.invoke({"question": question, "context": documents})
 
     score = scored_result.binary_score
 
@@ -250,118 +337,15 @@ def grade_documents(state) -> Literal["generate", "rewrite"]:
         print(score)
         return "rewrite"
 
-
-### Nodes
-
-
-def agent(state):
-    """
-    Invokes the agent model to generate a response based on the current state. Given
-    the question, it will decide to retrieve using the retriever tool, or simply end.
-
-    Args:
-        state (messages): The current state
-
-    Returns:
-        dict: The updated state with the agent response appended to messages
-    """
-    print("---CALL AGENT---")
-    messages = state["messages"]
-     # Extract metadata dynamically
-    get_metadata_extractor(state)
-    metadata_filter = state.get("metadata_filter", None)
-
-    print("---metadata----")
-    print(metadata_filter)
-
-
-    # Summarizing long messages before sending them to the model
-    def summarize_message(msg):
-        if isinstance(msg, AIMessage) and len(msg.content) > 1000:
-            return AIMessage(content=msg.content[:997] + "...")
-        return msg
-
-    messages = [summarize_message(msg) for msg in messages]
-
-    # Bind tools dynamically with metadata-aware retriever
-    
-    global retriever
-
-    retriever = vector_store.as_retriever(
-    search_kwargs = {"filter": metadata_filter} if metadata_filter else {}  #
-    )
-
-    
-    model=llm
-    model = model.bind_tools(tools)
-    response = model.invoke(messages)
-    # We return a list, because this will get added to the existing list
-
-    return {"messages": [response]}
-
-def rewrite(state):
-    """
-    Transform the query to produce a better question contextualized for YOUSEE DENMARK,
-    considering follow-up questions and previous queries.
-    
-    Args:
-        state (messages): The current state
-
-    Returns:
-        dict: The updated state with a re-phrased question specific to YOUSEE DENMARK
-    """
-    print("---TRANSFORM QUERY FOR YOUSEE DENMARK---")
-    
-    messages = state["messages"]
-    latest_question = get_latest_user_question(st.session_state.conversation)
-    
-    
-    # Retrieve the last user question to check for context
-    previous_questions = [msg[1] for msg in st.session_state.conversation if msg[0] == "user"]
-    last_question = previous_questions[-2] if len(previous_questions) > 1 else ""
-    
-    # Determine if the new question is a follow-up
-    follow_up_indicators = ["price", "tell", "what", "explain more", "how", "and?","where"]
-    is_follow_up = any(indicator in latest_question.lower() for indicator in follow_up_indicators)
-    
-    if is_follow_up and last_question:
-        combined_question = f"{last_question} Follow-up: {latest_question}"
-    else:
-        combined_question = latest_question
-
-    
-    # Prompt to force contextualization for YouSee Denmark
-    msg = [
-        HumanMessage(
-            content=f"""
-            You are a virtual assistant specializing in YouSee Denmark.
-            Your job is to refine the user's question to be more specific to YouSee Denmark’s services, plans, network, or offers.
-            
-            **User's Original Question:**
-            {latest_question}
-            
-            **Rewritten Question (must be relevant to YouSee Denmark):**
-            """,
-        )
-    ]
-    
-    # Invoke the model to rephrase the question
-    model = llm
-    response = model.invoke(msg)
-    
-    print("Relevant contextualized question=" + response.content)
-    return {"messages": [response]}
+######################################### GENERATE##################################################################
 
 
 def generate(state):
     print("---GENERATE---")
     messages = state["messages"]
 
-    #question = get_latest_user_question(messages)
-    question = get_latest_user_question(st.session_state.conversation)
-    # Assume the last assistant message (or retrieved content) holds the context.
-    last_message = messages[-1]
-    docs = last_message.content
+    documents = state["documents"]
+    question = state["question"]
 
     prompt = PromptTemplate(
         template="""You are a telecom sales agent specializing in providing the best offers and plans for customers.
@@ -384,10 +368,115 @@ def generate(state):
 
    # llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0, streaming=True)
     rag_chain = prompt | llm | StrOutputParser()
-    response = rag_chain.invoke({"context": docs, "question": question})
-    return {"messages": [response]}
+    response = rag_chain.invoke({"context": documents, "question": question})
+    print("---GENERATE DONE---")
+    return {"messages": [response],"documents": documents, "question": question, "generation": response}
 
-################################# GRAPH##################################
+
+#############################################HALLUCINATION AND ANSWER TEST ###############################################
+
+### Hallucination Grader
+
+
+# Data model
+class GradeHallucinations(BaseModel):
+    """Binary score for hallucination present in generation answer."""
+
+    binary_score: str = Field(
+        description="Answer is grounded in the facts, 'yes' or 'no'"
+    )
+
+
+# LLM with function call
+structured_llm_grader = llm.with_structured_output(GradeHallucinations)
+
+# Prompt
+system = """You are a grader assessing whether an LLM generation is grounded in / supported by a set of retrieved facts. \n 
+     Give a binary score 'yes' or 'no'. 'Yes' means that the answer is grounded in / supported by the set of facts."""
+hallucination_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", system),
+        ("human", "Set of facts: \n\n {documents} \n\n LLM generation: {generation}"),
+    ]
+)
+
+hallucination_grader = hallucination_prompt | structured_llm_grader
+
+
+### Answer Grader
+
+
+# Data model
+class GradeAnswer(BaseModel):
+    """Binary score to assess answer addresses question."""
+
+    binary_score: str = Field(
+        description="Answer addresses the question, 'yes' or 'no'"
+    )
+
+
+# LLM with function call
+
+structured_llm_grader = llm.with_structured_output(GradeAnswer)
+
+# Prompt
+system = """You are a grader assessing whether an answer addresses / resolves a question \n 
+     Give a binary score 'yes' or 'no'. Yes' means that the answer resolves the question."""
+answer_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", system),
+        ("human", "User question: \n\n {question} \n\n LLM generation: {generation}"),
+    ]
+)
+
+answer_grader = answer_prompt | structured_llm_grader
+
+
+def grade_generation_v_documents_and_question(state):
+    """
+    Determines whether the generation is grounded in the document and answers question.
+
+    Args:
+        state (dict): The current graph state
+
+    Returns:
+        str: Decision for next node to call
+    """
+
+    print("---CHECK HALLUCINATIONS---")
+    question = state["question"]
+    documents = state["documents"]
+    generation = state["generation"]
+
+    score = hallucination_grader.invoke(
+        {"documents": documents, "generation": generation}
+    )
+    grade = score.binary_score
+
+    # Check hallucination
+    if grade == "yes":
+        print("---DECISION: GENERATION IS GROUNDED IN DOCUMENTS---")
+        return "useful"
+    
+        '''
+        # Check question-answering
+        print("---GRADE GENERATION vs QUESTION---")
+        score = answer_grader.invoke({"question": question, "generation": generation})
+        grade = score.binary_score
+        if grade == "yes":
+            print("---DECISION: GENERATION ADDRESSES QUESTION---")
+            return "useful"
+        else:
+            print("---DECISION: GENERATION DOES NOT ADDRESS QUESTION---")
+            return "not useful"
+            '''
+    else:
+        print("---DECISION: GENERATION IS NOT GROUNDED IN DOCUMENTS, RE-TRY---")
+        return "not supported"
+
+
+############################### GRAPH#######################################################
+
 from langgraph.graph import END, StateGraph, START
 from langgraph.prebuilt import ToolNode
 from langgraph.checkpoint.memory import MemorySaver
@@ -395,7 +484,6 @@ from typing import Annotated, Sequence
 from typing_extensions import TypedDict
 from langchain_core.messages import BaseMessage, AIMessage
 from langgraph.graph.message import add_messages
-import streamlit as st
 
 # Initialize session state for conversation history if it doesn't exist.
 if "conversation" not in st.session_state:
@@ -426,46 +514,51 @@ def grade_documents_limited(state) -> str:
             return "rewrite"
     else:
         return decision
-    
+
+
     # New node to handle the final response.
 def final_response(state):
-    final_msg = ("Sorry, this question is beyond my knowledge, ask me about any other question on ys products ")
+    final_msg = ("Sorry, this question is beyond my knowledge, as a virtual assistant I can only assist you "
+                 "with products for YS denmark")
     return {"messages": [AIMessage(content=final_msg)]}
+
 
 # Define a new graph.
 workflow = StateGraph(AgentState)
 
-# Define the nodes (agent, retrieve, rewrite, generate, and final_response).
-workflow.add_node("agent", agent)         # Agent node; function 'agent' must be defined.
-retrieve = ToolNode([retriever_tool])       # 'retriever_tool' must be defined.
-workflow.add_node("retrieve", retrieve)     # Retrieval node.
-workflow.add_node("rewrite", rewrite)       # Rewriting the question; function 'rewrite' must be defined.
-workflow.add_node("generate", generate)     # Generating the response; function 'generate' must be defined.
-workflow.add_node("final_response", final_response)  # Final response node.
+workflow.add_node("retrieve", retrieve)  # retrieve
+#workflow.add_node("rewrite", rewrite)
+workflow.add_node("generate", generate)  # generatae
+workflow.add_node("transform_query", transform_query)  # transform_query
+workflow.add_node("final_response", final_response)
 
-# Build the edges.
-workflow.add_edge(START, "rewrite")
-workflow.add_edge("rewrite", "agent")
-workflow.add_conditional_edges(
-    "agent",
-    tools_condition,  # Function 'tools_condition' must be defined.
-    {
-        "tools": "retrieve",
-        END: END,
-    },
-)
+
+# Build graph
+
+workflow.add_edge(START, "transform_query")
+
+workflow.add_edge("transform_query", "retrieve")
+
 # In the retrieval branch, use the limited grade_documents function.
 workflow.add_conditional_edges(
     "retrieve",
     grade_documents_limited,
     {
-        "rewrite": "rewrite",
+        "rewrite": "transform_query",
         "generate": "generate",
         "final": "final_response"
     }
 )
-workflow.add_edge("generate", END)
-workflow.add_edge("rewrite", "agent")
+
+workflow.add_conditional_edges(
+    "generate",
+    grade_generation_v_documents_and_question,
+    {
+        "not supported": "generate",
+        "useful": END,
+        "not useful": "generate",
+    },
+)
 
 # Compile the graph.
 memory = MemorySaver()
@@ -474,6 +567,7 @@ graph = workflow.compile(checkpointer=memory)
 #############################################GUI#################################################
 import uuid
 import streamlit as st
+import time
 
 # Generate a thread_id dynamically if it doesn't exist in session state.
 if "thread_id" not in st.session_state:
@@ -482,10 +576,10 @@ if "thread_id" not in st.session_state:
 # Now use the dynamically generated thread_id in your config.
 config = {"configurable": {"thread_id": st.session_state.thread_id}}
 
+# Initialize session states if they don’t exist
 if "history" not in st.session_state:
     st.session_state.history = ""
 
-# Initialize session state for conversation history if it doesn't exist.
 if "conversation" not in st.session_state:
     st.session_state.conversation = []  # List of tuples like ("user", "question") or ("assistant", "response")
 
@@ -516,13 +610,17 @@ def run_virtual_assistant():
 
             # Prepare the input for the graph using the entire conversation history.
             inputs = {"messages": st.session_state.conversation}
-            
-            # Display "Assistant typing..."
+
+            # Show "Assistant typing..." flashing in real-time
             typing_placeholder = st.empty()
-            typing_placeholder.markdown("**Assistant typing...⏳**")
+            for _ in range(5):  # Flashing effect
+                typing_placeholder.markdown("**Assistant typing...** ⏳")
+                time.sleep(0.5)
+                typing_placeholder.markdown("")
+                time.sleep(0.5)
 
             final_message_content = ""
-            
+
             # Process the input through the graph (assumes 'graph' is defined globally).
             for output in graph.stream(inputs, config):
                 for key, value in output.items():
@@ -544,3 +642,4 @@ def run_virtual_assistant():
 
 if __name__ == "__main__":
     run_virtual_assistant()
+
