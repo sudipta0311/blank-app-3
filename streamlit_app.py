@@ -9,9 +9,7 @@ AZURE_OPENAI_API_KEY = st.secrets.get("AZURE_OPENAI_API_KEY")
 AZURE_OPENAI_ENDPOINT = st.secrets.get("AZURE_OPENAI_ENDPOINT")
 AZURE_OPENAI_DEPLOYMENT_NAME= st.secrets.get("AZURE_OPENAI_DEPLOYMENT_NAME")
 AZURE_OPENAI_API_VERSION= st.secrets.get("AZURE_OPENAI_API_VERSION") 
-
-
-os.environ['PINECONE_API_KEY'] = 'pcsk_2yWxfV_RzZcenPUjLkzMK78P8D2MEX6yfzSZJ2GYCKCfkiHUpgbj8ekG4yWfue7JJsEYtr'
+PINECONE_API_KEY = st.secrets.get("PINECONE_API_KEY") 
 
 from langchain_openai import AzureChatOpenAI
 
