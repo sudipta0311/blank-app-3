@@ -201,12 +201,21 @@ def get_metadata_extractor(state):
     - tablet
     - watch
     - plans
-    - subscription
     - accessories
     - ott
     - fixed internet 
     - 5g
-    Additionally, the documents may have a 'brand' metadata field for filtering by brand.
+    for ex- if user asks about plans , subscriptions or mobile calling pack etc then metadata will be plans
+    if user asked for streeming service then metadata will be TV 
+    if user ask for 5g service , then metadata will be 5g 
+    Additionally, the documents may have a 'brand' metadata field for filtering by brand.The possible brands are
+    - apple
+    - samsung
+    - google
+    - motorela
+    - xiaomi
+    - yousee 
+
 
     Instructions:
     - Identify the appropriate category based on the user's question.
