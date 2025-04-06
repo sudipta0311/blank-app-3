@@ -197,17 +197,16 @@ def get_metadata_extractor(state):
     system = """
     You are an expert at identifying the correct metadata filters for a search query in a vector store. 
     The vector store contains documents categorized under:
-    - phone
-    - tablet
-    - watch
+    - phone  (when user asks for mobile phones)
+    - tablet (when user asks for tables , ipads etc)
+    - watch (when user asks for smart watch)
     - plans
     - accessories
     - ott
     - fixed internet 
-    - 5g
+    - 5g (if user ask for 5g service , then metadata will be 5g)
     for ex- if user asks about plans , subscriptions or mobile calling pack etc then metadata will be plans
     if user asked for streeming service then metadata will be TV 
-    if user ask for 5g service , then metadata will be 5g 
     Additionally, the documents may have a 'brand' metadata field for filtering by brand.The possible brands are
     - apple
     - samsung
