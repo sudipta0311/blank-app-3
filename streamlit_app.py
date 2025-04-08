@@ -213,12 +213,12 @@ def get_metadata_extractor(state):
     if user asks for smartwatch then metadata will be watch
     if user asks for any mobile accessories i.e headphone , charger , cover then metadata will be accessories 
     Additionally, the documents may have a 'brand' metadata field for filtering by brand.The possible brands are
-    - apple
-    - samsung
-    - google
-    - motorela
-    - xiaomi
-    - yousee 
+    - Apple
+    - Samsung
+    - Google
+    - Motorela
+    - Xiaomi
+    - Yousee 
 
 
     Instructions:
