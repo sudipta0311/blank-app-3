@@ -45,7 +45,7 @@ pc = Pinecone(PINECONE_API_KEY)
 
 
 # vector store 
-index_name = "assistanttelco"
+index_name = "demoindex"
 
 index = pc.Index(index_name)
 
@@ -132,13 +132,13 @@ def transform_query(state):
         combined_question = latest_question
     
     # Question re-writer prompt
-    system = """You are a virtual assistant specializing in YouSee Denmark. 
-            Your job is to refine the user's question to be more specific to YouSee Denmark’s services, plans, network, or offers. 
+    system = """You are a virtual assistant specializing in SuperNet. 
+            Your job is to refine the user's question to be more specific to SuperNet’s services, plans, network, or offers. 
 
             Additionally, you are a question re-writer that converts an input question into a better version optimized for vector store retrieval. 
             Analyze the input and reason about the underlying semantic intent or meaning to generate a more precise and relevant question. 
 
-            Ensure that the rewritten question remains relevant to YouSee Denmark."""
+            Ensure that the rewritten question remains relevant to SuperNet."""
 
     re_write_prompt = ChatPromptTemplate.from_messages([
         ("system", system),
